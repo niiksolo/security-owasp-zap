@@ -1,32 +1,31 @@
-name: Security Scan
+name: ZAP Security Scan
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
   zap-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       juice-shop:
         image: bkimminich/juice-shop:latest
         ports:
           - 3000:3000
         options: >-
-          --health-cmd="curl -s http://localhost:3000 || exit 1"
-          --health-interval=5s
-          --health-timeout=2s
-          --health-retries=10
+          -e GITHUB_ACTIONS=true
+          -e CI=true
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Create reports directory
+      - name: Create report folder
         run: mkdir -p zap-reports
 
-      - name: Wait for Juice Shop to be up
+      - name: Wait for Juice Shop to be ready
         run: |
           for i in $(seq 1 30); do
             curl -s http://localhost:3000 && break
@@ -34,38 +33,33 @@ jobs:
             sleep 2
           done
 
-      - name: Pull ZAP image
-        run: docker pull zaproxy/zap-stable:latest
-
       - name: Run ZAP scan
         run: |
-          docker run --rm -v ${{ github.workspace }}/zap-reports:/zap/wrk \
-            zaproxy/zap-stable:latest zap-baseline.py \
+          docker run --rm \
+            -v ${{ github.workspace }}/zap-reports:/zap/wrk \
+            -t zaproxy/zap-stable zap-full-scan.py \
             -t http://host.docker.internal:3000 \
             -r zap_report.html \
             -J zap_report.json
 
-      - name: Show ZAP report
+      - name: Show HTML report (first 200 lines)
         run: head -n 200 zap-reports/zap_report.html || true
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Check high/critical issues
+      - name: Check for High/Critical issues
         run: |
-          if [ -f zap-reports/zap_report.json ]; then
-            HIGH=$(jq '.site[].alerts[] | select(.risk=="High") | .risk' zap-reports/zap_report.json | wc -l)
-            CRITICAL=$(jq '.site[].alerts[] | select(.risk=="Critical") | .risk' zap-reports/zap_report.json | wc -l)
-            echo "High: $HIGH, Critical: $CRITICAL"
-            if [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
-              echo "High/Critical issues found!"
-              exit 1
-            fi
-          else
-            echo "No report found"
+          chmod +x ./security-ci/fail-on-severity.sh
+          jq '.' zap-reports/zap_report.json || echo "No report found"
+          HIGH=$(jq '[.site[].alerts[] | select(.risk=="High")] | length' zap-reports/zap_report.json)
+          CRITICAL=$(jq '[.site[].alerts[] | select(.risk=="Critical")] | length' zap-reports/zap_report.json)
+          echo "High: $HIGH, Critical: $CRITICAL"
+          if [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
+            exit 1
           fi
 
-      - name: Upload report artifact
+      - name: Upload ZAP report
         uses: actions/upload-artifact@v4
         with:
           name: zap-reports
