@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      # 1) Checkout repo
+      # 1) Checkout репозитория
       - name: Checkout repo
         uses: actions/checkout@v4
 
@@ -25,7 +25,7 @@ jobs:
           docker pull bkimminich/juice-shop:latest
           docker run --rm -d --name juice-shop -p 3000:3000 bkimminich/juice-shop:latest
 
-      # 4) Ждём, пока Juice Shop будет доступен
+      # 4) Ждём пока Juice Shop будет доступен
       - name: Wait for Juice Shop
         run: |
           for i in $(seq 1 30); do
@@ -37,14 +37,14 @@ jobs:
             sleep 2
           done
 
-      # 5) Запуск ZAP baseline scan
+      # 5) Запуск ZAP baseline scan через Docker Hub
       - name: Run ZAP baseline scan
         run: |
-          docker pull ghcr.io/owasp/zap2docker-stable:latest
-          docker run --rm -v "${{ github.workspace }}/zap-reports":/zap/reports -t ghcr.io/owasp/zap2docker-stable:latest \
+          docker pull owasp/zap2docker-stable:2.13.0
+          docker run --rm -v "${{ github.workspace }}/zap-reports":/zap/reports -t owasp/zap2docker-stable:2.13.0 \
             zap-baseline.py -t http://host.docker.internal:3000 -r /zap/reports/zap_report.html -j /zap/reports/zap_report.json || true
 
-      # 6) Установка jq для обработки JSON
+      # 6) Установка jq для анализа JSON
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
