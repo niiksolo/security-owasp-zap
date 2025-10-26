@@ -1,9 +1,9 @@
-name: ZAP Scan
+name: Security Scan
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
+  pull_request:
 
 jobs:
   zap-scan:
@@ -13,51 +13,60 @@ jobs:
         image: bkimminich/juice-shop:latest
         ports:
           - 3000:3000
-        options: > 
+        options: >-
           --health-cmd="curl -s http://localhost:3000 || exit 1"
           --health-interval=5s
           --health-timeout=2s
           --health-retries=10
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Prepare reports folder
-      run: mkdir -p zap-reports zap-wrk
+      - name: Create reports directory
+        run: mkdir -p zap-reports
 
-    - name: Fix permissions for ZAP
-      run: |
-        sudo chown -R 1000:1000 zap-wrk
-        sudo chmod -R 777 zap-wrk
+      - name: Wait for Juice Shop to be up
+        run: |
+          for i in $(seq 1 30); do
+            curl -s http://localhost:3000 && break
+            echo "Waiting for Juice Shop..."
+            sleep 2
+          done
 
-    - name: Pull ZAP Docker image
-      run: docker pull zaproxy/zap-stable:latest
+      - name: Pull ZAP image
+        run: docker pull zaproxy/zap-stable:latest
 
-    - name: Run ZAP Baseline Scan
-      run: |
-        docker run --rm \
-          --network host \
-          -v ${{ github.workspace }}/zap-reports:/zap/reports \
-          -v ${{ github.workspace }}/zap-wrk:/zap/wrk \
-          zaproxy/zap-stable \
-          zap-baseline.py \
-          -t http://localhost:3000 \
-          -r /zap/reports/zap_report.html \
-          -J /zap/reports/zap_report.json \
-          -d
+      - name: Run ZAP scan
+        run: |
+          docker run --rm -v ${{ github.workspace }}/zap-reports:/zap/wrk \
+            zaproxy/zap-stable:latest zap-baseline.py \
+            -t http://host.docker.internal:3000 \
+            -r zap_report.html \
+            -J zap_report.json
 
-    - name: Show HTML report
-      run: head -n 200 zap-reports/zap_report.html || true
+      - name: Show ZAP report
+        run: head -n 200 zap-reports/zap_report.html || true
 
-    - name: Install jq
-      run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
-    - name: Fail on High/Critical issues
-      run: ./security-ci/fail-on-severity.sh
+      - name: Check high/critical issues
+        run: |
+          if [ -f zap-reports/zap_report.json ]; then
+            HIGH=$(jq '.site[].alerts[] | select(.risk=="High") | .risk' zap-reports/zap_report.json | wc -l)
+            CRITICAL=$(jq '.site[].alerts[] | select(.risk=="Critical") | .risk' zap-reports/zap_report.json | wc -l)
+            echo "High: $HIGH, Critical: $CRITICAL"
+            if [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
+              echo "High/Critical issues found!"
+              exit 1
+            fi
+          else
+            echo "No report found"
+          fi
 
-    - name: Upload ZAP reports
-      uses: actions/upload-artifact@v4
-      with:
-        name: zap-reports
-        path: zap-reports/
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-reports
+          path: zap-reports/
