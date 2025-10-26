@@ -20,3 +20,5 @@ This project demonstrates an automated security scan of a web application using 
 
 After the workflow finishes, you can download the security scan report here:  
 [Download ZAP Report](https://github.com/niiksolo/security-owasp-zap/actions/runs/18817546104/artifacts/4374373419)
+
+<img src="1.png" width="400"/>
