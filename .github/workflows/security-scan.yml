@@ -50,7 +50,9 @@ jobs:
 
       # 7) Запуск скрипта, который завершает билд при High/Critical
       - name: Run fail-on-severity script
-        run: ./security-ci/fail-on-severity.sh zap-reports/zap_report.json
+        run: |
+          chmod +x ./security-ci/fail-on-severity.sh
+          ./security-ci/fail-on-severity.sh zap-reports/zap_report.json
 
       # 8) Загрузка отчёта как артефакт
       - name: Upload ZAP report
