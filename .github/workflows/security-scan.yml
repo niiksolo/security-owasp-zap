@@ -44,7 +44,7 @@ jobs:
           HIGH=$(jq '.site[]?.alerts[]? | select(.risk == "High")' zap-reports/zap_report.json | jq -s 'length')
           CRITICAL=$(jq '.site[]?.alerts[]? | select(.risk == "Critical")' zap-reports/zap_report.json | jq -s 'length')
           WARN=$(jq '.site[]?.alerts[]? | select(.risk == "Medium" or .risk == "Low")' zap-reports/zap_report.json | jq -s 'length')
-          echo "📊 Vulnerabilities summary:"
+          echo "Vulnerabilities summary:"
           echo "   Critical: $CRITICAL"
           echo "   High:     $HIGH"
           echo "   Warn:     $WARN"
