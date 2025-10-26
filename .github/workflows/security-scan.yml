@@ -27,7 +27,7 @@ jobs:
               echo "✅ Juice Shop is up!"
               break
             fi
-            sleep 2
+            sleep 2 
           done
 
       - name: Run OWASP ZAP Scan
