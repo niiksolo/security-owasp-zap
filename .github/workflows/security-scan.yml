@@ -11,17 +11,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # 1) Checkout repo
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      # 2) Создать папку для отчётов
       - name: Create reports dir
         run: mkdir -p zap-reports
 
+      # 3) Запуск Juice Shop
       - name: Start Juice Shop
         run: |
           docker pull bkimminich/juice-shop:latest
           docker run --rm -d --name juice-shop -p 3000:3000 bkimminich/juice-shop:latest
 
+      # 4) Ждём, пока Juice Shop будет доступен
       - name: Wait for Juice Shop
         run: |
           for i in $(seq 1 30); do
@@ -29,21 +33,26 @@ jobs:
               echo "Juice Shop is up"
               break
             fi
+            echo "Waiting for Juice Shop..."
             sleep 2
           done
 
+      # 5) Запуск ZAP baseline scan
       - name: Run ZAP baseline scan
         run: |
-          docker pull owasp/zap2docker-stable
-          docker run --rm -v "${{ github.workspace }}/zap-reports":/zap/reports -t owasp/zap2docker-stable \
+          docker pull ghcr.io/owasp/zap2docker-stable:latest
+          docker run --rm -v "${{ github.workspace }}/zap-reports":/zap/reports -t ghcr.io/owasp/zap2docker-stable:latest \
             zap-baseline.py -t http://host.docker.internal:3000 -r /zap/reports/zap_report.html -j /zap/reports/zap_report.json || true
 
+      # 6) Установка jq для обработки JSON
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
+      # 7) Запуск скрипта, который завершает билд при High/Critical
       - name: Run fail-on-severity script
         run: ./security-ci/fail-on-severity.sh zap-reports/zap_report.json
 
+      # 8) Загрузка отчёта как артефакт
       - name: Upload ZAP report
         uses: actions/upload-artifact@v4
         with:
