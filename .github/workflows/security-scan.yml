@@ -1,73 +1,63 @@
-name: Security Scan (ZAP + Juice Shop)
+name: ZAP Scan
 
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  schedule:
-    - cron: '0 2 * * *' # опционально, раз в день
+  workflow_dispatch:
 
 jobs:
   zap-scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    services:
+      juice-shop:
+        image: bkimminich/juice-shop:latest
+        ports:
+          - 3000:3000
+        options: > 
+          --health-cmd="curl -s http://localhost:3000 || exit 1"
+          --health-interval=5s
+          --health-timeout=2s
+          --health-retries=10
+
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Create directories
-        run: |
-          mkdir -p zap-reports
-          mkdir -p zap-wrk
+    - name: Prepare reports folder
+      run: mkdir -p zap-reports zap-wrk
 
-      # 1) Start Juice Shop
-      - name: Start Juice Shop
-        run: |
-          docker pull bkimminich/juice-shop:latest
-          docker run --rm -d --name juice-shop -p 3000:3000 bkimminich/juice-shop:latest
+    - name: Fix permissions for ZAP
+      run: |
+        sudo chown -R 1000:1000 zap-wrk
+        sudo chmod -R 777 zap-wrk
 
-      # 2) Wait until Juice Shop is ready
-      - name: Wait for Juice Shop
-        run: |
-          for i in $(seq 1 30); do
-            if curl -sS http://localhost:3000 >/dev/null; then
-              echo "Juice Shop is up"
-              break
-            fi
-            echo "Waiting for Juice Shop..."
-            sleep 2
-          done
+    - name: Pull ZAP Docker image
+      run: docker pull zaproxy/zap-stable:latest
 
-      # 3) Run ZAP baseline scan
-      - name: Run ZAP baseline scan
-        run: |
-          docker pull zaproxy/zap-stable
-          docker run --rm \
-            -v "${{ github.workspace }}/zap-reports":/zap/reports \
-            -v "${{ github.workspace }}/zap-wrk":/zap/wrk \
-            -t zaproxy/zap-stable \
-            zap-baseline.py \
-              -t http://localhost:3000 \
-              -r /zap/reports/zap_report.html \
-              -j /zap/reports/zap_report.json || true
+    - name: Run ZAP Baseline Scan
+      run: |
+        docker run --rm \
+          --network host \
+          -v ${{ github.workspace }}/zap-reports:/zap/reports \
+          -v ${{ github.workspace }}/zap-wrk:/zap/wrk \
+          zaproxy/zap-stable \
+          zap-baseline.py \
+          -t http://localhost:3000 \
+          -r /zap/reports/zap_report.html \
+          -J /zap/reports/zap_report.json \
+          -d
 
-      # 4) Show summary (optional)
-      - name: Show ZAP report snippet
-        run: head -n 200 zap-reports/zap_report.html || true
+    - name: Show HTML report
+      run: head -n 200 zap-reports/zap_report.html || true
 
-      # 5) Install jq and run fail-on-severity
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
+    - name: Install jq
+      run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Run fail-on-severity script
-        run: |
-          chmod +x ./security-ci/fail-on-severity.sh
-          ./security-ci/fail-on-severity.sh zap-reports/zap_report.json
+    - name: Fail on High/Critical issues
+      run: ./security-ci/fail-on-severity.sh
 
-      # 6) Upload report as artifact
-      - name: Upload ZAP report
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-report
-          path: zap-reports/
+    - name: Upload ZAP reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: zap-reports
+        path: zap-reports/
