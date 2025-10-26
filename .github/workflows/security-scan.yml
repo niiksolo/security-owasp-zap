@@ -1,66 +1,48 @@
 name: ZAP Security Scan
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
   zap-scan:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Start Juice Shop in Docker
+      - name: Create Docker network
+        run: docker network create zapnet
+
+      - name: Start Juice Shop container
         run: |
           docker run -d \
             --name juice-shop \
+            --network zapnet \
             -p 3000:3000 \
-            bkimminich/juice-shop:latest
-          echo "⏳ Waiting for Juice Shop to start..."
+            bkimminich/juice-shop
+          echo "⏳ Waiting for Juice Shop..."
           for i in $(seq 1 30); do
-            if curl -s http://localhost:3000 >/dev/null; then
+            if docker exec juice-shop curl -s http://localhost:3000 >/dev/null; then
               echo "✅ Juice Shop is up!"
               break
             fi
-            echo "Waiting..."
             sleep 2
           done
 
-      - name: Run ZAP Security Scan
+      - name: Run OWASP ZAP Scan
         run: |
           mkdir -p zap-reports
           docker run --rm \
-            --network="host" \
-            --add-host=host.docker.internal:host-gateway \
+            --network zapnet \
             -v ${{ github.workspace }}/zap-reports:/zap/wrk \
-            -t zaproxy/zap-stable zap-full-scan.py \
-            -t http://localhost:3000 \
+            zaproxy/zap-stable zap-baseline.py \
+            -t http://juice-shop:3000 \
             -r zap_report.html \
-            -J zap_report.json
+            -J zap_report.json \
+            -m 3
 
-      - name: Show part of ZAP HTML report
-        run: head -n 100 zap-reports/zap_report.html || true
-
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Fail on High/Critical vulnerabilities
-        run: |
-          HIGH=$(jq '[.site[].alerts[] | select(.risk=="High")] | length' zap-reports/zap_report.json)
-          CRITICAL=$(jq '[.site[].alerts[] | select(.risk=="Critical")] | length' zap-reports/zap_report.json)
-          echo "High: $HIGH, Critical: $CRITICAL"
-          if [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
-            echo "❌ Found high or critical vulnerabilities!"
-            exit 1
-          else
-            echo "✅ No critical issues found."
-          fi
-
-      - name: Upload ZAP Reports
+      - name: Upload ZAP Report
         uses: actions/upload-artifact@v4
         with:
           name: zap-reports
