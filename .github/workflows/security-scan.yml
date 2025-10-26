@@ -37,11 +37,11 @@ jobs:
             sleep 2
           done
 
-      # 5) Запуск ZAP baseline scan через Docker Hub
+      # 5) Запуск ZAP baseline scan через официальный образ
       - name: Run ZAP baseline scan
         run: |
-          docker pull owasp/zap2docker-stable:2.13.0
-          docker run --rm -v "${{ github.workspace }}/zap-reports":/zap/reports -t owasp/zap2docker-stable:2.13.0 \
+          docker pull zaproxy/zap-stable
+          docker run --rm -v "${{ github.workspace }}/zap-reports":/zap/reports -t zaproxy/zap-stable \
             zap-baseline.py -t http://host.docker.internal:3000 -r /zap/reports/zap_report.html -j /zap/reports/zap_report.json || true
 
       # 6) Установка jq для анализа JSON
