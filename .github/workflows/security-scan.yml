@@ -1,4 +1,4 @@
-name: 🔒 ZAP Security Scan
+name: ZAP Security Scan
 
 on:
   push:
@@ -21,14 +21,14 @@ jobs:
       - name: Run Juice Shop container
         run: |
           docker run -d --rm --name juice-shop --network zapnet -p 3000:3000 bkimminich/juice-shop
-          echo "🧃 Waiting for Juice Shop to start..."
+          echo "Waiting for Juice Shop to start..."
           sleep 20
 
       - name: Run OWASP ZAP Baseline Scan
         run: |
           mkdir -p zap-reports
           chmod 777 zap-reports
-          echo "⚙️ Starting ZAP baseline scan..."
+          echo "Starting ZAP baseline scan..."
           timeout 15m docker run --rm --user root \
             --network zapnet \
             -v ${{ github.workspace }}/zap-reports:/zap/wrk \
@@ -46,20 +46,20 @@ jobs:
             CRITICAL=$(jq '.site[]?.alerts[]? | select(.risk == "Critical")' zap-reports/zap_report.json | jq -s 'length')
             WARN=$(jq '.site[]?.alerts[]? | select(.risk == "Medium" or .risk == "Low")' zap-reports/zap_report.json | jq -s 'length')
           else
-            echo "⚠️ ZAP report not found, assuming 0 vulnerabilities."
+            echo "ZAP report not found, assuming 0 vulnerabilities."
             HIGH=0
             CRITICAL=0
             WARN=0
           fi
-          echo "📊 Vulnerabilities summary:"
+          echo "Vulnerabilities summary:"
           echo "   Critical: $CRITICAL"
           echo "   High:     $HIGH"
           echo "   Warn:     $WARN"
           if [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
-            echo "❌ High/Critical vulnerabilities detected!"
+            echo "High/Critical vulnerabilities detected!"
             exit 1
           else
-            echo "✅ No High/Critical vulnerabilities. Build passed."
+            echo "No High/Critical vulnerabilities. Build passed."
           fi
 
       - name: Upload ZAP HTML Report
