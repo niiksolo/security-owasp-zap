@@ -1,0 +1,51 @@
+name: Security Scan (ZAP + Juice Shop)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  zap-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Create reports dir
+        run: mkdir -p zap-reports
+
+      - name: Start Juice Shop
+        run: |
+          docker pull bkimminich/juice-shop:latest
+          docker run --rm -d --name juice-shop -p 3000:3000 bkimminich/juice-shop:latest
+
+      - name: Wait for Juice Shop
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sS http://localhost:3000 >/dev/null; then
+              echo "Juice Shop is up"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Run ZAP baseline scan
+        run: |
+          docker pull owasp/zap2docker-stable
+          docker run --rm -v "${{ github.workspace }}/zap-reports":/zap/reports -t owasp/zap2docker-stable \
+            zap-baseline.py -t http://host.docker.internal:3000 -r /zap/reports/zap_report.html -j /zap/reports/zap_report.json || true
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Run fail-on-severity script
+        run: ./security-ci/fail-on-severity.sh zap-reports/zap_report.json
+
+      - name: Upload ZAP report
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: zap-reports/
