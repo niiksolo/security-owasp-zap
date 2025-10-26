@@ -1,41 +1,36 @@
-name: ZAP Security Scan & Publish
+name: ZAP Security Scan
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
-  zap-scan:
+  zap_scan:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
-      - name: Set up network for Juice Shop
-        run: docker network create zapnet || true
+    - name: Start Juice Shop
+      run: |
+        docker network create zapnet || true
+        docker run -d --rm --name juice-shop --network zapnet -p 3000:3000 bkimminich/juice-shop
+        echo "Waiting for Juice Shop to start..."
+        sleep 60
 
-      - name: Start Juice Shop
-        run: |
-          docker run -d --rm --name juice-shop --network zapnet -p 3000:3000 bkimminich/juice-shop
-          echo "Waiting 60s for Juice Shop to start..."
-          sleep 60
+    - name: Run ZAP Baseline Scan
+      run: |
+        mkdir -p zap-reports
+        docker run --rm --network zapnet -v ${{ github.workspace }}/zap-reports:/zap/wrk \
+        -t zaproxy/zap-stable zap-baseline.py -t http://juice-shop:3000 -r zap_report.html
 
-      - name: Run ZAP baseline scan
-        run: |
-          mkdir -p zap-reports
-          docker run --rm --network zapnet -v $PWD/zap-reports:/zap/wrk zaproxy/zap-stable zap-baseline.py -t http://juice-shop:3000 -r zap_report.html
-        env:
-          DOCKER_BUILDKIT: 1
-
-      - name: Commit and push report to gh-pages
-        uses: peaceiris/actions-gh-pages@v6
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./zap-reports
-          publish_branch: gh-pages
-          user_name: 'github-actions'
-          user_email: 'github-actions@github.com'
-
-      - name: Clean up
-        run: docker stop juice-shop || true
+    - name: Publish ZAP Report to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v5
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./zap-reports
+        publish_branch: gh-pages
+        force_orphan: true
