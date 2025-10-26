@@ -1,12 +1,15 @@
-name: ZAP Security Scan
+name: 🔒 ZAP Security Scan
 
 on:
   push:
-  workflow_dispatch:
+    branches: [ "main" ]
+  pull_request:
 
 jobs:
-  zap-scan:
+  zap_scan:
+    name: Run OWASP ZAP Baseline
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repository
@@ -15,32 +18,17 @@ jobs:
       - name: Create Docker network
         run: docker network create zapnet || true
 
-      - name: Start Juice Shop
+      - name: Run Juice Shop container
         run: |
-          set -eux
-          docker rm -f juice-shop || true
-          docker run -d \
-            --name juice-shop \
-            --network zapnet \
-            -p 3000:3000 \
-            bkimminich/juice-shop
-          echo "⏳ Waiting for Juice Shop to become available on http://localhost:3000 ..."
-          for i in $(seq 1 60); do
-            if curl -sSf http://localhost:3000 >/dev/null; then
-              echo "✅ Juice Shop is up!"
-              break
-            fi
-            echo "Waiting... ($i/60)"
-            sleep 2
-          done
-          curl -sSf http://localhost:3000
+          docker run -d --rm --name juice-shop --network zapnet -p 3000:3000 bkimminich/juice-shop
+          echo "🧃 Waiting for Juice Shop to start..."
+          sleep 20
 
       - name: Run OWASP ZAP Baseline Scan
         run: |
-          set -eux
-          cd ${{ github.workspace }}
           mkdir -p zap-reports
           chmod 777 zap-reports
+          echo "⚙️ Starting ZAP baseline scan..."
           timeout 15m docker run --rm --user root \
             --network zapnet \
             -v ${{ github.workspace }}/zap-reports:/zap/wrk \
@@ -48,10 +36,27 @@ jobs:
             -t http://juice-shop:3000 \
             -r zap_report.html \
             -J zap_report.json \
-            -m 3
+            -m 3 || true
 
-      - name: Upload ZAP Report
+      - name: Evaluate ZAP Results
+        run: |
+          sudo apt-get install -y jq > /dev/null
+          HIGH=$(jq '.site[]?.alerts[]? | select(.risk == "High")' zap-reports/zap_report.json | jq -s 'length')
+          CRITICAL=$(jq '.site[]?.alerts[]? | select(.risk == "Critical")' zap-reports/zap_report.json | jq -s 'length')
+          WARN=$(jq '.site[]?.alerts[]? | select(.risk == "Medium" or .risk == "Low")' zap-reports/zap_report.json | jq -s 'length')
+          echo "📊 Vulnerabilities summary:"
+          echo "   Critical: $CRITICAL"
+          echo "   High:     $HIGH"
+          echo "   Warn:     $WARN"
+          if [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
+            echo "❌ High/Critical vulnerabilities detected!"
+            exit 1
+          else
+            echo "✅ No High/Critical vulnerabilities. Build passed."
+          fi
+
+      - name: Upload ZAP HTML Report
         uses: actions/upload-artifact@v4
         with:
-          name: zap-reports
-          path: zap-reports/
+          name: zap-report
+          path: zap-reports/zap_report.html
